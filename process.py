@@ -138,21 +138,30 @@ def align_keypoints(json_path1, json_path2, output_path1, output_path2):
     with open(json_path2, "r") as f:
         keypoints2 = json.load(f)
 
-    # 填充关键点到每帧17个
+    # 填充关键点到每帧17个（确保每帧17个关键点）
     def pad_frames(frames):
-        return [frame + [[0.0, 0.0]] * (17 - len(frame)) for frame in frames]
+        return [frame + [[0.0, 0.0]] * (17 - len(frame)) if len(frame) <17 else frame[:17] for frame in frames]
 
     padded1 = pad_frames(keypoints1)
     padded2 = pad_frames(keypoints2)
 
-    with open(json_path1, "w") as f:
-        json.dump(padded1, f)
-    with open(json_path2, "w") as f:
-        json.dump(padded2, f)
-
-    # 展平为34维向量序列
+    # 展平为34维向量序列，替换NaN为0
     def flatten(frames):
-        return [np.array([coord for kp in frame for coord in kp]) for frame in frames]
+        flattened = []
+        for frame in frames:
+            # 替换NaN坐标并限制为17个关键点
+            processed = []
+            for kp in frame[:17]:  # 确保只取前17个关键点
+                if isinstance(kp, list) and len(kp) == 2:
+                    processed.append([
+                        kp[0] if not np.isnan(kp[0]) else 0.0,
+                        kp[1] if not np.isnan(kp[1]) else 0.0
+                    ])
+                else:
+                    processed.append([0.0, 0.0])  # 无效关键点处理
+            # 展平为34维向量
+            flattened.append(np.array([coord for kp in processed for coord in kp]))
+        return flattened
 
     flat1 = flatten(padded1)
     flat2 = flatten(padded2)
@@ -164,11 +173,21 @@ def align_keypoints(json_path1, json_path2, output_path1, output_path2):
     aligned1 = [padded1[i] for i, _ in path]
     aligned2 = [padded2[j] for _, j in path]
 
-    # 保存结果
+    # 保存结果时确保数据格式正确
+    def format_output(sequence):
+        """确保每帧包含17个关键点，每个关键点有2个坐标"""
+        formatted = []
+        for frame in sequence:
+            # 截断或填充到17个关键点
+            adjusted = frame[:17] + [[0.0, 0.0]] * (17 - len(frame[:17]))
+            formatted.append([[float(coord) for coord in kp] for kp in adjusted[:17]])
+        return formatted
+
+    # 保存对齐后的结果
     with open(output_path1, "w") as f:
-        json.dump(aligned1, f)
+        json.dump(format_output(aligned1), f)
     with open(output_path2, "w") as f:
-        json.dump(aligned2, f)
+        json.dump(format_output(aligned2), f)
 
 
 def calculate_similarity_and_low_similarity_frames(
@@ -318,8 +337,88 @@ def generate_overlay_video(
     cap2.release()
     out.release()
 
+def process_single_frame(
+    frame: np.ndarray,
+    standard_kp_json: list,
+    model: YOLO,
+    frame_index: int,
+    weights: list,
+    resolution: tuple,
+    skeleton_conn: list = [
+        (0, 1), (0, 2), (1, 3), (2, 4),       # 头部
+        (5, 6), (5, 7), (7, 9), (6, 8),      # 躯干和手臂
+        (8, 10), (11, 12), (5, 11), (6, 12), # 髋部连接
+        (11, 13), (13, 15), (12, 14), (14, 16) # 腿部
+    ]
+) -> np.ndarray:
+    """
+    修改版：仅显示用户骨骼（绿色），不显示标准参考骨骼
+    """
+    # 获取标准关键点（仅用于计算，不显示）
+    standard_norm_kp = np.array(standard_kp_json[frame_index % len(standard_kp_json)]).astype(float)
+    
+    # 姿态估计
+    results = model(frame, verbose=False)[0]
+    vis_frame = frame.copy()
+    
+    if results.keypoints is None or len(results.keypoints.xy) == 0:
+        cv2.putText(vis_frame, "No pose detected", (50, 50), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+        return vis_frame
+
+    # 当前帧关键点
+    current_abs_kp = results.keypoints.xy[0].cpu().numpy()
+    mid_shoulder = (current_abs_kp[5] + current_abs_kp[6]) / 2
+    
+    # ========= 关键修改：移除标准骨骼绘制 =========
+    # 仅保留相似度计算所需的标准关键点处理（不显示）
+    current_norm_kp = current_abs_kp - mid_shoulder
+    total_distance = 0.0
+    valid = True
+    
+    for i in range(17):
+        if np.isnan(current_norm_kp[i]).any() or np.isnan(standard_norm_kp[i]).any():
+            valid = False
+            break
+        distance = np.linalg.norm(current_norm_kp[i] - standard_norm_kp[i])
+        total_distance += weights[i] * distance
+
+    # 相似度计算
+    max_distance = np.sqrt(resolution[0]**2 + resolution[1]**2)
+    if valid:
+        similarity = max(0.0, min(100.0, (1 - total_distance/(max_distance*sum(weights)))*100))
+        color = (0, 255, 0)  # 仅用绿色显示
+    else:
+        similarity = 0.0
+        color = (0, 0, 255)
+    
+    # ========= 仅绘制用户骨骼 =========
+    # 绘制关键点
+    for idx, (x, y) in enumerate(current_abs_kp):
+        cv2.circle(vis_frame, (int(x), int(y)), 5, (0, 255, 0), -1)
+    
+    # 绘制骨骼连接
+    for (start, end) in skeleton_conn:
+        x1, y1 = map(int, current_abs_kp[start])
+        x2, y2 = map(int, current_abs_kp[end])
+        cv2.line(vis_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+    
+    # 显示相似度
+    text = f"Similarity: {similarity:.1f}%" if valid else "Invalid Pose"
+    text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 1, 2)[0]
+    text_x = vis_frame.shape[1] - text_size[0] - 20
+    text_y = 50
+    cv2.rectangle(vis_frame, 
+                (text_x - 10, text_y - text_size[1] - 10), 
+                (text_x + text_size[0] + 10, text_y + 10), 
+                (0,0,0), -1)
+    cv2.putText(vis_frame, text, (text_x, text_y),
+            cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+    
+    return vis_frame
+
 if __name__ == "__main__":
-    # 使用示例
+    # 原始的处理流程
     process_pose_videos(
         video1_path=r"movies/1.mp4",
         video2_path=r"movies/2.mp4",
@@ -334,33 +433,15 @@ if __name__ == "__main__":
         r"keypoints/aligned1.json",
         r"keypoints/aligned2.json",
     )
+    
+    # 相似度计算和视频生成
     json_path1 = r"keypoints/aligned1.json"
     json_path2 = r"keypoints/aligned2.json"
     resolution = (640, 360)
-    weights = [
-        0.2,
-        0.5,
-        0.5,
-        0.7,
-        0.7,
-        0.6,
-        0.6,
-        0.7,
-        0.7,
-        0.6,
-        0.6,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-    ]
+    weights = [0.2, 0.5, 0.5, 0.7, 0.7, 0.6, 0.6, 0.7, 0.7, 0.6, 0.6, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
-    similarity_scores, low_similarity_frames = (
-        calculate_similarity_and_low_similarity_frames(
-            json_path1, json_path2, resolution, weights
-        )
+    similarity_scores, low_similarity_frames = calculate_similarity_and_low_similarity_frames(
+        json_path1, json_path2, resolution, weights
     )
     generate_overlay_video(
         video1_path=r"movies/process_1.mp4",
@@ -368,3 +449,47 @@ if __name__ == "__main__":
         similarity_scores=similarity_scores,
         output_path=r"movies/Overlay.mp4",
     )
+
+    # 新增的摄像头测试代码
+    print("\n启动实时姿态对比测试（按 Q 退出）...")
+    
+    # 加载标准关键点
+    with open(r"keypoints/aligned1.json", "r") as f:
+        standard_kp = json.load(f)
+    
+    # 初始化模型
+    model = YOLO(r"models\yolo11n-pose.pt")
+    
+    # 打开摄像头
+    cap = cv2.VideoCapture(0)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
+    
+    frame_index = 0
+    try:
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                print("无法获取视频帧")
+                break
+
+            # 处理当前帧
+            processed_frame = process_single_frame(
+                frame=frame,
+                standard_kp_json=standard_kp,
+                model=model,
+                frame_index=frame_index,
+                weights=weights,
+                resolution=resolution
+            )
+            
+            # 显示处理结果
+            cv2.imshow('Real-time Pose Comparison', processed_frame)
+            frame_index += 1
+            
+            # 退出机制
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+    finally:
+        cap.release()
+        cv2.destroyAllWindows()  

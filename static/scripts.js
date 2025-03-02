@@ -213,17 +213,33 @@ async function analyzeVideo() {
         alert(error.message);
     }
 }
-async function loadStandardKeypoints() {
-
-}
 async function realtimeAnalyze() {
-    
-}
-function drawAnalysisOverlay(ctx, keypoints, videoWidth, videoHeight) {
-    
+    try {
+        // 关闭摄像头预览
+        closeCamera();
+        
+        // 切换显示元素
+        videoPreview.style.display = 'none';
+        const processedFeed = document.getElementById('processedFeed');
+        processedFeed.style.display = 'block';
+        
+        // 启动视频流
+        processedFeed.src = '/video_feed';
+    } catch (error) {
+        alert('实时分析失败: ' + error.message);
+    }
 }
 
-// 停止实时分析
-function stopRealtimeAnalyze() {
-    
+// 修改 closeCamera 函数以停止实时流
+function closeCamera() {
+    if (mediaStream) {
+        mediaStream.getTracks().forEach(track => track.stop());
+        mediaStream = null;
+        videoPreview.srcObject = null;
+    }
+    // 停止实时分析流
+    const processedFeed = document.getElementById('processedFeed');
+    processedFeed.style.display = 'none';
+    processedFeed.src = ''; // 清空源以停止请求
+    videoPreview.style.display = 'block'; // 恢复视频元素显示
 }
