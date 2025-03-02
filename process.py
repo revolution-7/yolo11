@@ -56,6 +56,10 @@ def process_pose_videos(
     # 处理单个视频的闭包函数
     def process_video(input_path, output_path, kps_path, fps, size):
         """处理单个视频的通用流程"""
+        # 检查输出文件是否已存在
+        if os.path.exists(output_path) and os.path.exists(kps_path):
+            print(f"输出文件已存在，跳过处理: {output_path} 和 {kps_path}")
+            return
         # 创建输出目录
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         os.makedirs(os.path.dirname(kps_path), exist_ok=True)
@@ -397,8 +401,32 @@ def process_single_frame(
     for idx, (x, y) in enumerate(current_abs_kp):
         cv2.circle(vis_frame, (int(x), int(y)), 5, (0, 255, 0), -1)
     
-    # 绘制骨骼连接
+    # 修改骨骼连接绘制逻辑，跳过无效关键点
+    # 绘制骨骼连接的修改部分
     for (start, end) in skeleton_conn:
+        # 1. 检查索引是否越界
+        if start >= len(current_abs_kp) or end >= len(current_abs_kp):
+            continue
+        
+        # 2. 获取坐标并检查有效性（非NaN、非零点、在图像范围内）
+        kp_start = current_abs_kp[start]
+        kp_end = current_abs_kp[end]
+        
+        # 定义无效坐标条件
+        is_invalid_start = np.isnan(kp_start).any() or np.allclose(kp_start, [0, 0], atol=1e-3)
+        is_invalid_end = np.isnan(kp_end).any() or np.allclose(kp_end, [0, 0], atol=1e-3)
+        
+        if is_invalid_start or is_invalid_end:
+            continue
+        
+        # 3. 转换为整数坐标并检查边界
+        x1, y1 = int(kp_start[0]), int(kp_start[1])
+        x2, y2 = int(kp_end[0]), int(kp_end[1])
+        
+        if (0 <= x1 < resolution[0] and 0 <= y1 < resolution[1] and
+            0 <= x2 < resolution[0] and 0 <= y2 < resolution[1]):
+            cv2.line(vis_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        
         x1, y1 = map(int, current_abs_kp[start])
         x2, y2 = map(int, current_abs_kp[end])
         cv2.line(vis_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
@@ -413,7 +441,7 @@ def process_single_frame(
                 (text_x + text_size[0] + 10, text_y + 10), 
                 (0,0,0), -1)
     cv2.putText(vis_frame, text, (text_x, text_y),
-            cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+        cv2.FONT_HERSHEY_DUPLEX, 1, (0,255,0), 2, cv2.LINE_AA)
     
     return vis_frame
 

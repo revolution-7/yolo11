@@ -7,7 +7,6 @@ let selectedFileName = null;
 let realtimeAnalyzer = null;
 let standardKeypoints = null;
 
-
 // 元素引用
 const videoPreview = document.getElementById('videoPreview');
 const uploadList = document.getElementById('uploadList');
@@ -27,219 +26,232 @@ document.getElementById('refreshList').addEventListener('click', () => loadFileL
 loadFileList();
 
 async function openCamera() {
-    try {
-        mediaStream = await navigator.mediaDevices.getUserMedia({ 
-            video: {
-                width: { ideal: 640 },
-                height: { ideal: 480 }
-            }
-        });
-        videoPreview.srcObject = mediaStream;
-        videoPreview.play();
-    } catch (error) {
-        console.error('摄像头访问失败:', error);
-        alert('无法访问摄像头，请检查权限和连接');
-    }
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        width: { ideal: 640 },
+        height: { ideal: 480 },
+      },
+    });
+    videoPreview.srcObject = mediaStream;
+    videoPreview.play();
+  } catch (error) {
+    console.error('摄像头访问失败:', error);
+    alert('无法访问摄像头，请检查权限和连接');
+  }
 }
 
 function closeCamera() {
-    if (mediaStream) {
-        mediaStream.getTracks().forEach(track => track.stop());
-        mediaStream = null;
-        videoPreview.srcObject = null;
-    }
+  if (mediaStream) {
+    mediaStream.getTracks().forEach((track) => track.stop());
+    mediaStream = null;
+    videoPreview.srcObject = null;
+  }
 }
 
 // scripts.js 修改录制部分
 async function startRecording() {
-    if (!mediaStream) {
-        alert('请先打开摄像头！');
-        return;
-    }
-    
-    try {
-        // 强制使用MP4编码（H.264）
-        const mimeType = 'video/mp4; codecs=avc1';
-        
-        if (!MediaRecorder.isTypeSupported(mimeType)) {
-            throw new Error('当前浏览器不支持MP4录制，请使用Chrome或Edge浏览器');
-        }
+  if (!mediaStream) {
+    alert('请先打开摄像头！');
+    return;
+  }
 
-        mediaRecorder = new MediaRecorder(mediaStream, { mimeType });
-        
-        mediaRecorder.ondataavailable = event => {
-            if (event.data.size > 0) {
-                recordedChunks.push(event.data);
-            }
-        };
-        
-        mediaRecorder.onstop = async () => {
-            const blob = new Blob(recordedChunks, { type: mimeType });
-            await sendVideoToServer(blob);
-            recordedChunks = [];
-        };
-        
-        mediaRecorder.start(200);
-        isRecording = true;
-        updateButtonStates();
-    } catch (error) {
-        alert(error.message);
+  try {
+    // 强制使用MP4编码（H.264）
+    const mimeType = 'video/mp4; codecs=avc1';
+
+    if (!MediaRecorder.isTypeSupported(mimeType)) {
+      throw new Error('当前浏览器不支持MP4录制，请使用Chrome或Edge浏览器');
     }
+
+    mediaRecorder = new MediaRecorder(mediaStream, { mimeType });
+
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        recordedChunks.push(event.data);
+      }
+    };
+
+    mediaRecorder.onstop = async () => {
+      const blob = new Blob(recordedChunks, { type: mimeType });
+      await sendVideoToServer(blob);
+      recordedChunks = [];
+    };
+
+    mediaRecorder.start(200);
+    isRecording = true;
+    updateButtonStates();
+  } catch (error) {
+    alert(error.message);
+  }
 }
 
 function stopRecording() {
-    if (mediaRecorder && isRecording) {
-        mediaRecorder.stop();
-        isRecording = false;
-        updateButtonStates();
-    }
+  if (mediaRecorder && isRecording) {
+    mediaRecorder.stop();
+    isRecording = false;
+    updateButtonStates();
+  }
 }
 
 // scripts.js 修改发送到服务器的部分
 async function sendVideoToServer(blob) {
-    try {
-        // 强制使用.mp4后缀
-        const filename = `recording_${Date.now()}.mp4`;
-        const file = new File([blob], filename, { type: 'video/mp4' });
-        
-        const formData = new FormData();
-        formData.append('video', file);
-        
-        const response = await fetch('/upload', {
-            method: 'POST',
-            body: formData
-        });
-        
-        if (response.ok) {
-            alert('视频已成功保存！');
-            loadFileList();
-        } else {
-            throw new Error(`上传失败：${response.statusText}`);
-        }
-    } catch (error) {
-        alert(error.message);
+  try {
+    // 强制使用.mp4后缀
+    const filename = `${Date.now()}.mp4`;
+    const file = new File([blob], filename, { type: 'video/mp4' });
+
+    const formData = new FormData();
+    formData.append('video', file);
+
+    const response = await fetch('/upload', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (response.ok) {
+      alert('视频已成功保存！');
+      loadFileList();
+    } else {
+      throw new Error(`上传失败：${response.statusText}`);
     }
+  } catch (error) {
+    alert(error.message);
+  }
 }
 
 function uploadVideo() {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'video/mp4, video/webm, video/avi';
-    
-    input.onchange = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'video/mp4, video/webm, video/avi';
 
-        const formData = new FormData();
-        formData.append('video', file);
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
 
-        try {
-            const response = await fetch('/upload', {
-                method: 'POST',
-                body: formData
-            });
-            
-            if (response.ok) {
-                alert('上传成功！');
-                loadFileList();
-            } else {
-                const error = await response.json();
-                throw new Error(error.error || '上传失败');
-            }
-        } catch (error) {
-            alert(error.message);
-        }
-    };
-    
-    input.click();
+    const formData = new FormData();
+    formData.append('video', file);
+
+    try {
+      const response = await fetch('/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (response.ok) {
+        alert('上传成功！');
+        loadFileList();
+      } else {
+        const error = await response.json();
+        throw new Error(error.error || '上传失败');
+      }
+    } catch (error) {
+      alert(error.message);
+    }
+  };
+
+  input.click();
 }
 
 function updateButtonStates() {
-    document.getElementById('startRecord').disabled = isRecording;
-    document.getElementById('stopRecord').disabled = !isRecording;
-    document.getElementById('openCamera').disabled = isRecording;
+  document.getElementById('startRecord').disabled = isRecording;
+  document.getElementById('stopRecord').disabled = !isRecording;
+  document.getElementById('openCamera').disabled = isRecording;
 }
 
 function loadFileList() {
-    fetch('/uploads')
-        .then(response => response.json())
-        .then(files => {
-            uploadList.innerHTML = files.map(file => 
-                `<div class="file-item" onclick="selectFile('${file.name.replace(/'/g, "\\'")}')">
+  fetch('/uploads')
+    .then((response) => response.json())
+    .then((files) => {
+      uploadList.innerHTML = files
+        .map(
+          (file) =>
+            `<div class="file-item" onclick="selectFile('${file.name.replace(/'/g, "\\'")}')">
                     ${file.name}
-                    <button onclick="downloadFile('${file.name.replace(/'/g, "\\'")}')">下载</button>
-                </div>`
-            ).join('');
-        });
+                    <button onclick="downloadFile('${file.name.replace(
+                      /'/g,
+                      "\\'",
+                    )}')">下载</button>
+                </div>`,
+        )
+        .join('');
+    });
 }
 
 function downloadFile(filename) {
-    window.open(`/download/${filename}`, '_blank');
+  window.open(`/download/${filename}`, '_blank');
 }
 function selectFile(filename) {
-    selectedFileName = filename;
-    // 高亮选中项
-    document.querySelectorAll('.file-item').forEach(item => {
-        item.classList.remove('selected');
-    });
-    event.currentTarget.classList.add('selected');
+  selectedFileName = filename;
+  // 高亮选中项
+  document.querySelectorAll('.file-item').forEach((item) => {
+    item.classList.remove('selected');
+  });
+  event.currentTarget.classList.add('selected');
 }
 
 async function analyzeVideo() {
-    if (!selectedFileName) {
-        alert('请先选择要分析的视频');
-        return;
+  if (!selectedFileName) {
+    alert('请先选择要分析的视频');
+    return;
+  }
+
+  const processingAlert = document.getElementById('processingAlert');
+  try {
+    processingAlert.style.display = 'block'; // 显示提示
+    document.getElementById('analyzeVideo').disabled = true;
+
+    const response = await fetch('/analyze', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        filename: selectedFileName,
+      }),
+    });
+
+    const result = await response.json();
+    if (response.ok) {
+      alert('分析完成！结果视频已生成');
+      loadFileList();
+    } else {
+      throw new Error(result.error || '分析失败');
     }
-    
-    try {
-        const response = await fetch('/analyze', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                filename: selectedFileName
-            })
-        });
-        
-        const result = await response.json();
-        if (response.ok) {
-            alert('分析完成！结果视频已生成');
-            loadFileList();  // 刷新文件列表
-        } else {
-            throw new Error(result.error || '分析失败');
-        }
-    } catch (error) {
-        alert(error.message);
-    }
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    processingAlert.style.display = 'none'; // 隐藏提示
+    document.getElementById('analyzeVideo').disabled = false;
+  }
 }
 async function realtimeAnalyze() {
-    try {
-        // 关闭摄像头预览
-        closeCamera();
-        
-        // 切换显示元素
-        videoPreview.style.display = 'none';
-        const processedFeed = document.getElementById('processedFeed');
-        processedFeed.style.display = 'block';
-        
-        // 启动视频流
-        processedFeed.src = '/video_feed';
-    } catch (error) {
-        alert('实时分析失败: ' + error.message);
-    }
+  try {
+    // 关闭摄像头预览
+    closeCamera();
+
+    // 切换显示元素
+    videoPreview.style.display = 'none';
+    const processedFeed = document.getElementById('processedFeed');
+    processedFeed.style.display = 'block';
+
+    // 启动视频流
+    processedFeed.src = '/video_feed';
+  } catch (error) {
+    alert('实时分析失败: ' + error.message);
+  }
 }
 
 // 修改 closeCamera 函数以停止实时流
 function closeCamera() {
-    if (mediaStream) {
-        mediaStream.getTracks().forEach(track => track.stop());
-        mediaStream = null;
-        videoPreview.srcObject = null;
-    }
-    // 停止实时分析流
-    const processedFeed = document.getElementById('processedFeed');
-    processedFeed.style.display = 'none';
-    processedFeed.src = ''; // 清空源以停止请求
-    videoPreview.style.display = 'block'; // 恢复视频元素显示
+  if (mediaStream) {
+    mediaStream.getTracks().forEach((track) => track.stop());
+    mediaStream = null;
+    videoPreview.srcObject = null;
+  }
+  // 停止实时分析流
+  const processedFeed = document.getElementById('processedFeed');
+  processedFeed.style.display = 'none';
+  processedFeed.src = ''; // 清空源以停止请求
+  videoPreview.style.display = 'block'; // 恢复视频元素显示
 }

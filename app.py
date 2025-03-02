@@ -14,9 +14,11 @@ app.config['ALLOWED_EXTENSIONS'] = {'mp4', 'webm', 'avi'}
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.environ["WERKZEUG_RUN_MAIN"] = "false"  # 禁用部分重载逻辑
 
-STANDARD_KP_PATH = "keypoints/1_kp.json"
+STANDARD_KP_PATH = "keypoints/aligned1.json"
 with open(STANDARD_KP_PATH, 'r') as f:
     STANDARD_KEYPOINTS = json.load(f)
+
+model = YOLO(os.path.join("models", "yolo11n-pose.pt"))
 
 def allowed_file(filename):
     return '.' in filename and \
@@ -71,10 +73,10 @@ def handle_analysis():
             "video1_path": "movies/1.mp4",
             "video2_path": user_video,
             "output_vid1_path": "uploads/1_process.mp4",  # 标准视频处理结果
-            "output_vid2_path": f"uploads/{base_name}_process.mp4",
-            "keypoints1_path": "keypoints/1_kp.json",     # 标准关键点固定路径
+            "output_vid2_path": f"uploads/{base_name}_处理.mp4",
+            "keypoints1_path": "keypoints/aligned1.json",     # 标准关键点固定路径
             "keypoints2_path": f"keypoints/{base_name}_kp.json",
-            "overlay_path": f"uploads/{base_name}_overlay.mp4"
+            "overlay_path": f"uploads/{base_name}_叠加.mp4"
         }
         
         # 执行处理流程
@@ -125,7 +127,6 @@ def gen_frames():
     cap = cv2.VideoCapture(0)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-    model = YOLO(r"models\yolo11n-pose.pt")
     standard_kp = STANDARD_KEYPOINTS  # 直接使用已加载的标准关键点
     weights = [0.2,0.5,0.5,0.7,0.7,0.6,0.6,0.7,0.7,0.6,0.6,0,0,0,0,0,0]
     resolution = (640, 480)
@@ -146,7 +147,7 @@ def gen_frames():
                 resolution=resolution
             )
             # 转换为 JPEG
-            ret, buffer = cv2.imencode('.jpg', processed_frame)
+            ret, buffer = cv2.imencode('.jpg', processed_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 100])
             if not ret:
                 continue
             frame_bytes = buffer.tobytes()
@@ -165,10 +166,6 @@ def video_feed():
 def download_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename, as_attachment=True)
 
-
-@app.route('/realtime', methods=['POST'])
-def realtime_analysis():
-    return
 
 if __name__ == '__main__':
     app.run(debug=False, port=5000,use_reloader=False)

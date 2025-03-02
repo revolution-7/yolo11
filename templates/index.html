@@ -1,42 +1,42 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>健身姿态纠正</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-</head>
-<body>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
     <div class="container">
-        <div class="file-list">
-            <h3>上传文件列表
-                <button id="refreshList" class="icon-button" title="手动刷新">🔄</button>
-            </h3>
-            <div id="uploadList"></div>
+      <div class="file-list">
+        <h3>
+          上传文件列表
+          <button id="refreshList" class="icon-button" title="手动刷新">🔄</button>
+        </h3>
+        <div id="uploadList"></div>
+      </div>
+
+      <div class="main-content">
+        <div class="button-group">
+          <button id="openCamera">打开摄像头</button>
+          <button id="closeCamera">关闭摄像头</button>
+          <button id="startRecord">开始录制</button>
+          <button id="stopRecord">结束录制</button>
+          <button id="uploadVideo">上传视频</button>
+          <button id="analyzeVideo">分析视频</button>
+          <button id="realtimeAnalyze">实时分析</button>
         </div>
-        
-        <div class="main-content">
-            <div class="button-group">
-                <button id="openCamera">打开摄像头</button>
-                <button id="closeCamera">关闭摄像头</button>
-                <button id="startRecord">开始录制</button>
-                <button id="stopRecord">结束录制</button>
-                <button id="uploadVideo">上传视频</button>
-                <button id="analyzeVideo">分析视频</button>
-                <button id="realtimeAnalyze">实时分析</button>
-            </div>
-            
-            <div id="videoContainer">
-                <video id="videoPreview" autoplay playsinline></video>
-                <img id="processedFeed" style="display: none;">
-            </div>
-            
-            <footer>
-                本平台仅用于学习交流
-            </footer>
+
+        <div id="videoContainer">
+          <video id="videoPreview" autoplay playsinline></video>
+          <img id="processedFeed" style="display: none" />
         </div>
+
+        <footer>本平台仅用于学习交流</footer>
+        <div id="processingAlert" style="display: none;">正在处理中...</div>
+      </div>
     </div>
 
     <script src="{{ url_for('static', filename='scripts.js') }}"></script>
-</body>
+  </body>
 </html>
