@@ -6,7 +6,7 @@ import cv2
 from ultralytics import YOLO
 import numpy as np
 import json
-from flask_cors import CORS  # 新增跨域支持
+from flask_cors import CORS
 import base64
 
 app = Flask(__name__)
