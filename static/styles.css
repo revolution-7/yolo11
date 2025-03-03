@@ -153,6 +153,10 @@ footer {
   display: none;
   font-weight: 500;
   animation: float 2s ease-in-out infinite;
+  min-width: 200px;
+  text-align: center;
+  font-size: 1.1em;
+  padding: 14px 28px;
 }
 
 @keyframes float {

@@ -6,6 +6,7 @@ let isRecording = false;
 let selectedFileName = null;
 let realtimeAnalyzer = null;
 let standardKeypoints = null;
+let isRealtimeAnalyzing = false;
 
 // 元素引用
 const videoPreview = document.getElementById('videoPreview');
@@ -198,7 +199,8 @@ async function analyzeVideo() {
 
   const processingAlert = document.getElementById('processingAlert');
   try {
-    processingAlert.style.display = 'block'; // 显示提示
+    processingAlert.textContent = '正在分析视频...';  // 修改提示文本
+    processingAlert.style.display = 'block';
     document.getElementById('analyzeVideo').disabled = true;
 
     const response = await fetch('/analyze', {
@@ -225,8 +227,24 @@ async function analyzeVideo() {
     document.getElementById('analyzeVideo').disabled = false;
   }
 }
+// scripts.js 修改后的realtimeAnalyze函数
 async function realtimeAnalyze() {
+  const analyzeBtn = document.getElementById('realtimeAnalyze');
+  const processingAlert = document.getElementById('processingAlert');
+  
   try {
+    if (isRealtimeAnalyzing) {
+      // 停止分析
+      closeCamera();
+      analyzeBtn.textContent = '实时分析';
+      isRealtimeAnalyzing = false;
+      return;
+    }
+
+    // 显示启动提示
+    processingAlert.textContent = '正在启动实时分析...';  // 动态修改提示文本
+    processingAlert.style.display = 'block';
+
     // 关闭摄像头预览
     closeCamera();
 
@@ -235,10 +253,25 @@ async function realtimeAnalyze() {
     const processedFeed = document.getElementById('processedFeed');
     processedFeed.style.display = 'block';
 
+    // 添加1秒延迟确保视频流加载
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
     // 启动视频流
     processedFeed.src = '/video_feed';
+    
+    // 更新按钮状态
+    analyzeBtn.textContent = '停止实时分析';
+    isRealtimeAnalyzing = true;
+    
   } catch (error) {
+    processingAlert.textContent = '启动失败';
+    setTimeout(() => processingAlert.style.display = 'none', 2000); // 显示2秒错误提示
     alert('实时分析失败: ' + error.message);
+  } finally {
+    // 仅在启动成功时隐藏提示
+    if (!isRealtimeAnalyzing) {
+      processingAlert.style.display = 'none';
+    }
   }
 }
 
@@ -249,9 +282,16 @@ function closeCamera() {
     mediaStream = null;
     videoPreview.srcObject = null;
   }
+  
   // 停止实时分析流
   const processedFeed = document.getElementById('processedFeed');
   processedFeed.style.display = 'none';
-  processedFeed.src = ''; // 清空源以停止请求
-  videoPreview.style.display = 'block'; // 恢复视频元素显示
+  processedFeed.src = '';
+  videoPreview.style.display = 'block';
+  
+  // 重置实时分析状态
+  if (isRealtimeAnalyzing) {
+    document.getElementById('realtimeAnalyze').textContent = '实时分析';
+    isRealtimeAnalyzing = false;
+  }
 }
