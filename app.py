@@ -6,8 +6,11 @@ import cv2
 from ultralytics import YOLO
 import numpy as np
 import json
+from flask_cors import CORS  # 新增跨域支持
+import base64
 
 app = Flask(__name__)
+CORS(app)  # 允许跨域请求
 
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['ALLOWED_EXTENSIONS'] = {'mp4', 'webm', 'avi'}
@@ -123,44 +126,33 @@ def handle_analysis():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-def gen_frames():
-    cap = cv2.VideoCapture(0)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-    standard_kp = STANDARD_KEYPOINTS  # 直接使用已加载的标准关键点
-    weights = [0.2,0.5,0.5,0.7,0.7,0.6,0.6,0.7,0.7,0.6,0.6,0,0,0,0,0,0]
-    resolution = (640, 480)
-    frame_index = 0
-    
+@app.route('/process_frame', methods=['POST'])
+def process_frame():
     try:
-        while True:
-            success, frame = cap.read()
-            if not success:
-                break
-            # 处理帧
-            processed_frame = process.process_single_frame(
-                frame=frame,
-                standard_kp_json=standard_kp,
-                model=model,
-                frame_index=frame_index,
-                weights=weights,
-                resolution=resolution
-            )
-            # 转换为 JPEG
-            ret, buffer = cv2.imencode('.jpg', processed_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 100])
-            if not ret:
-                continue
-            frame_bytes = buffer.tobytes()
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-            frame_index += 1
-    finally:
-        cap.release()
-
-# 添加路由
-@app.route('/video_feed')
-def video_feed():
-    return Response(gen_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+        # 接收Base64编码的图片
+        data = request.json
+        image_data = base64.b64decode(data['image'].split(',')[1])
+        nparr = np.frombuffer(image_data, np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        # 处理帧（使用process.py中的逻辑）
+        processed_frame = process.process_single_frame(
+            frame=frame,
+            standard_kp_json=STANDARD_KEYPOINTS,
+            model=model,
+            frame_index=0,  # 实时模式不需要帧索引
+            weights=[0.2,0.5,0.5,0.7,0.7,0.6,0.6,0.7,0.7,0.6,0.6,0,0,0,0,0,0],
+            resolution=(640, 480)
+        )
+        
+        # 编码返回图片
+        _, buffer = cv2.imencode('.jpg', processed_frame)
+        return jsonify({
+            'processed': base64.b64encode(buffer).decode('utf-8')
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/download/<path:filename>')  # 使用path转换器支持斜杠和特殊字符
 def download_file(filename):

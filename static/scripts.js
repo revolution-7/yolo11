@@ -7,6 +7,8 @@ let selectedFileName = null;
 let realtimeAnalyzer = null;
 let standardKeypoints = null;
 let isRealtimeAnalyzing = false;
+let processingInterval = null;
+const TARGET_FPS = 17; // 修改为 17 FPS 以减少延迟
 
 // 元素引用
 const videoPreview = document.getElementById('videoPreview');
@@ -20,7 +22,6 @@ document.getElementById('stopRecord').addEventListener('click', stopRecording);
 document.getElementById('uploadVideo').addEventListener('click', uploadVideo);
 document.getElementById('analyzeVideo').addEventListener('click', analyzeVideo);
 document.getElementById('realtimeAnalyze').addEventListener('click', realtimeAnalyze);
-// 在现有事件监听部分添加
 document.getElementById('refreshList').addEventListener('click', () => loadFileList());
 
 // 初始化加载文件列表
@@ -47,10 +48,12 @@ function closeCamera() {
     mediaStream.getTracks().forEach((track) => track.stop());
     mediaStream = null;
     videoPreview.srcObject = null;
+    videoPreview.src = '';
   }
+  if (processingInterval) clearInterval(processingInterval);
+  isRealtimeAnalyzing = false;
 }
 
-// scripts.js 修改录制部分
 async function startRecording() {
   if (!mediaStream) {
     alert('请先打开摄像头！');
@@ -58,9 +61,7 @@ async function startRecording() {
   }
 
   try {
-    // 强制使用MP4编码（H.264）
     const mimeType = 'video/mp4; codecs=avc1';
-
     if (!MediaRecorder.isTypeSupported(mimeType)) {
       throw new Error('当前浏览器不支持MP4录制，请使用Chrome或Edge浏览器');
     }
@@ -95,10 +96,8 @@ function stopRecording() {
   }
 }
 
-// scripts.js 修改发送到服务器的部分
 async function sendVideoToServer(blob) {
   try {
-    // 强制使用.mp4后缀
     const filename = `${Date.now()}.mp4`;
     const file = new File([blob], filename, { type: 'video/mp4' });
 
@@ -182,9 +181,9 @@ function loadFileList() {
 function downloadFile(filename) {
   window.open(`/download/${filename}`, '_blank');
 }
+
 function selectFile(filename) {
   selectedFileName = filename;
-  // 高亮选中项
   document.querySelectorAll('.file-item').forEach((item) => {
     item.classList.remove('selected');
   });
@@ -199,7 +198,7 @@ async function analyzeVideo() {
 
   const processingAlert = document.getElementById('processingAlert');
   try {
-    processingAlert.textContent = '正在分析视频...';  // 修改提示文本
+    processingAlert.textContent = '正在分析视频...';
     processingAlert.style.display = 'block';
     document.getElementById('analyzeVideo').disabled = true;
 
@@ -223,75 +222,69 @@ async function analyzeVideo() {
   } catch (error) {
     alert(error.message);
   } finally {
-    processingAlert.style.display = 'none'; // 隐藏提示
+    processingAlert.style.display = 'none';
     document.getElementById('analyzeVideo').disabled = false;
   }
 }
-// scripts.js 修改后的realtimeAnalyze函数
+
+// 修改后的实时分析函数
 async function realtimeAnalyze() {
   const analyzeBtn = document.getElementById('realtimeAnalyze');
-  const processingAlert = document.getElementById('processingAlert');
-  
-  try {
-    if (isRealtimeAnalyzing) {
-      // 停止分析
-      closeCamera();
-      analyzeBtn.textContent = '实时分析';
-      isRealtimeAnalyzing = false;
-      return;
-    }
-
-    // 显示启动提示
-    processingAlert.textContent = '正在启动实时分析...';  // 动态修改提示文本
-    processingAlert.style.display = 'block';
-
-    // 关闭摄像头预览
-    closeCamera();
-
-    // 切换显示元素
-    videoPreview.style.display = 'none';
-    const processedFeed = document.getElementById('processedFeed');
-    processedFeed.style.display = 'block';
-
-    // 添加1秒延迟确保视频流加载
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // 启动视频流
-    processedFeed.src = '/video_feed';
-    
-    // 更新按钮状态
-    analyzeBtn.textContent = '停止实时分析';
-    isRealtimeAnalyzing = true;
-    
-  } catch (error) {
-    processingAlert.textContent = '启动失败';
-    setTimeout(() => processingAlert.style.display = 'none', 2000); // 显示2秒错误提示
-    alert('实时分析失败: ' + error.message);
-  } finally {
-    // 仅在启动成功时隐藏提示
-    if (!isRealtimeAnalyzing) {
-      processingAlert.style.display = 'none';
-    }
-  }
-}
-
-// 修改 closeCamera 函数以停止实时流
-function closeCamera() {
-  if (mediaStream) {
-    mediaStream.getTracks().forEach((track) => track.stop());
-    mediaStream = null;
-    videoPreview.srcObject = null;
-  }
-  
-  // 停止实时分析流
+  const videoPreview = document.getElementById('videoPreview');
   const processedFeed = document.getElementById('processedFeed');
-  processedFeed.style.display = 'none';
-  processedFeed.src = '';
-  videoPreview.style.display = 'block';
-  
-  // 重置实时分析状态
+  const loadingIndicator = document.getElementById('loadingIndicator');
+
   if (isRealtimeAnalyzing) {
-    document.getElementById('realtimeAnalyze').textContent = '实时分析';
+    clearInterval(processingInterval);
+    loadingIndicator.style.display = 'none';
+    processedFeed.style.display = 'none';
+    closeCamera();
+    analyzeBtn.textContent = '实时分析';
     isRealtimeAnalyzing = false;
+    return;
   }
+
+  // 启动摄像头
+  mediaStream = await navigator.mediaDevices.getUserMedia({
+    video: { width: 640, height: 480 },
+  });
+  videoPreview.srcObject = mediaStream;
+  await videoPreview.play();
+
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = videoPreview.videoWidth;
+  canvas.height = videoPreview.videoHeight;
+
+  // 显示弹出式加载提示
+  loadingIndicator.style.display = 'block';
+  processedFeed.style.display = 'none';
+
+  // 设置处理帧率（15 FPS）
+  const intervalTime = 1000 / TARGET_FPS;
+
+  processingInterval = setInterval(async () => {
+    try {
+      ctx.drawImage(videoPreview, 0, 0);
+      const imageData = canvas.toDataURL('image/jpeg', 0.5); // 降低质量到 0.5 以减少数据量
+      const response = await fetch('/process_frame', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: imageData }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        processedFeed.src = `data:image/jpeg;base64,${result.processed}`;
+        // 隐藏加载提示，显示处理后的画面
+        loadingIndicator.style.display = 'none';
+        processedFeed.style.display = 'block';
+      }
+    } catch (error) {
+      console.error('Frame processing error:', error);
+    }
+  }, intervalTime);
+
+  analyzeBtn.textContent = '停止分析';
+  isRealtimeAnalyzing = true;
 }
